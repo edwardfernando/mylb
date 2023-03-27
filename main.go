@@ -1,17 +1,22 @@
 package main
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"log"
 	"mylb/balancer"
 )
 
 func main() {
-	// move this to viper
-	originServerList := []string{
-		"http://localhost:8081",
-		"http://localhost:8082",
-		"http://localhost:8083",
-		"http://localhost:8084",
+	data, err := ioutil.ReadFile("serverlist.json")
+	if err != nil {
+		panic(err)
+	}
+
+	var originServerList []string
+	err = json.Unmarshal(data, &originServerList)
+	if err != nil {
+		panic(err)
 	}
 
 	pool, err := balancer.NewLoadBalancer(originServerList)
