@@ -1,7 +1,7 @@
-package main
+package balancer
 
 import (
-	"log"
+	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -17,41 +17,56 @@ type Backend struct {
 }
 
 type ServerPool struct {
-	backends []*Backend
-	current  uint64
+	Backends []*Backend
+	current  int64
+	mux      sync.Mutex
+	cookie   *http.Cookie
 }
 
-func (s *ServerPool) NextIndex() int {
-	return int(atomic.AddUint64(&s.current, uint64(1)) % uint64(len(s.backends)))
+func (s *ServerPool) NextIndex() int64 {
+	return atomic.AddInt64(&s.current, int64(1)) % int64(len(s.Backends))
 }
 
-var nextServerIndex int = 0
+func (s *ServerPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 
-func main() {
-	var mu sync.Mutex
+	// this is for persistance support feature
+	// where the same request coming from one node should be handled by
+	// the same node for its future request
+	// if s.cookie != nil {
+	// 	for _, server := range s.Backends {
+	// 		if server.URL.String() == s.cookie.Value {
+	// 			fmt.Println("disini")
+	// 			server.ReverseProxy.ServeHTTP(w, r)
+	// 			return
+	// 		}
+	// 	}
+	// }
 
-	originServerList := []string{
-		"http://localhost:8081",
-		"http://localhost:8082",
-		"http://localhost:8083",
+	s.current = s.NextIndex()
+	server := s.Backends[s.current]
+
+	if !server.Alive {
+		// If the selected server is unhealthy, try the other servers until
+		// a healthy one is found
+		for i := 0; i < len(s.Backends); i++ {
+			s.current = s.NextIndex()
+			server := s.Backends[s.current]
+			if server.Alive {
+				break
+			}
+		}
 	}
 
-	loadBalancerHandler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		// Use a mutex to prevent data races when updating nextServerIndex.
-		mu.Lock()
+	fmt.Println("server: ", server.URL.Host)
 
-		// Select the next backend server in the pool.
-		originServerURL, _ := url.Parse(originServerList[(nextServerIndex)%len(originServerList)])
+	// s.cookie = &http.Cookie{
+	// 	Name:  "session",
+	// 	Value: server.URL.String(),
+	// 	Path:  "/",
+	// }
 
-		nextServerIndex++
-
-		mu.Unlock()
-
-		// Use an existing reverse proxy from httputil to forward the request to the selected backend server.
-		reverseProxy := httputil.NewSingleHostReverseProxy(originServerURL)
-
-		reverseProxy.ServeHTTP(rw, req)
-	})
-
-	log.Fatal(http.ListenAndServe(":8080", loadBalancerHandler))
+	// http.SetCookie(w, s.cookie)
+	server.ReverseProxy.ServeHTTP(w, r)
 }
