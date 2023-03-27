@@ -5,7 +5,7 @@ import (
 	"flag"
 	"io/ioutil"
 	"log"
-	"mylb/balancer"
+	"mylb/lb"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 	portFlag := flag.Int("port", 8000, "listening port")
 	flag.Parse()
 
-	pool, err := balancer.NewLoadBalancer(originServerList, *portFlag)
+	pool, err := lb.NewLoadBalancer(originServerList, *portFlag)
 	if err != nil {
 		panic(err)
 	}
