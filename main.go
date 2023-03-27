@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"io/ioutil"
 	"log"
 	"mylb/balancer"
@@ -19,11 +20,14 @@ func main() {
 		panic(err)
 	}
 
-	pool, err := balancer.NewLoadBalancer(originServerList)
+	portFlag := flag.Int("port", 8000, "listening port")
+	flag.Parse()
+
+	pool, err := balancer.NewLoadBalancer(originServerList, *portFlag)
 	if err != nil {
 		panic(err)
 	}
 
-	log.Default().Println("Starting server on port 8000....")
+	log.Default().Printf("Starting server on port %d ...", *portFlag)
 	log.Fatal(pool.ListenAndServe())
 }

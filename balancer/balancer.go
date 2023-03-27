@@ -1,6 +1,7 @@
 package balancer
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -94,14 +95,14 @@ func newServerPool(originServerList []string) (*ServerPool, error) {
 	}, nil
 }
 
-func NewLoadBalancer(originServerList []string) (*http.Server, error) {
+func NewLoadBalancer(originServerList []string, port int) (*http.Server, error) {
 	serverPool, err := newServerPool(originServerList)
 	if err != nil {
 		return nil, err
 	}
 
 	return &http.Server{
-		Addr:    ":8000",
+		Addr:    fmt.Sprintf(":%d", port),
 		Handler: serverPool,
 	}, nil
 }
