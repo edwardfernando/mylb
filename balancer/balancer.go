@@ -1,7 +1,6 @@
 package balancer
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -30,19 +29,21 @@ func (s *ServerPool) NextIndex() int64 {
 func (s *ServerPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
+	s.selectServer(w, r).ReverseProxy.ServeHTTP(w, r)
+}
 
+func (s *ServerPool) selectServer(w http.ResponseWriter, r *http.Request) *Backend {
 	// this is for persistance support feature
 	// where the same request coming from one node should be handled by
 	// the same node for its future request
-	// if s.cookie != nil {
-	// 	for _, server := range s.Backends {
-	// 		if server.URL.String() == s.cookie.Value {
-	// 			fmt.Println("disini")
-	// 			server.ReverseProxy.ServeHTTP(w, r)
-	// 			return
-	// 		}
-	// 	}
-	// }
+	cookie, err := r.Cookie("session")
+	if err == nil {
+		for _, backend := range s.Backends {
+			if backend.URL.String() == cookie.Value {
+				return backend
+			}
+		}
+	}
 
 	s.current = s.NextIndex()
 	server := s.Backends[s.current]
@@ -59,14 +60,48 @@ func (s *ServerPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Println("server: ", server.URL.Host)
+	s.cookie = &http.Cookie{
+		Name:  "session",
+		Value: server.URL.String(),
+		Path:  "/",
+	}
 
-	// s.cookie = &http.Cookie{
-	// 	Name:  "session",
-	// 	Value: server.URL.String(),
-	// 	Path:  "/",
-	// }
+	http.SetCookie(w, s.cookie)
 
-	// http.SetCookie(w, s.cookie)
-	server.ReverseProxy.ServeHTTP(w, r)
+	return server
+}
+
+func newServerPool(originServerList []string) (*ServerPool, error) {
+	backends := make([]*Backend, 0, len(originServerList))
+
+	for _, urlString := range originServerList {
+		url, err := url.Parse(urlString)
+		if err != nil {
+			return nil, err
+		}
+
+		backend := &Backend{
+			URL:          url,
+			Alive:        true,
+			ReverseProxy: httputil.NewSingleHostReverseProxy(url),
+		}
+
+		backends = append(backends, backend)
+	}
+
+	return &ServerPool{
+		Backends: backends,
+	}, nil
+}
+
+func NewLoadBalancer(originServerList []string) (*http.Server, error) {
+	serverPool, err := newServerPool(originServerList)
+	if err != nil {
+		return nil, err
+	}
+
+	return &http.Server{
+		Addr:    ":8000",
+		Handler: serverPool,
+	}, nil
 }
