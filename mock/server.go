@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -15,7 +16,7 @@ func main() {
 
 	originServerHandler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		fmt.Printf("[origin server] received request: %s\n", time.Now())
-		_, _ = fmt.Fprintf(rw, "origin server response %s", port)
+		io.Copy(rw, req.Body)
 	})
 
 	log.Fatal(http.ListenAndServe(port, originServerHandler))
