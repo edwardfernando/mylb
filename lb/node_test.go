@@ -3,6 +3,7 @@ package lb
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bsm/gomega"
 
@@ -126,4 +127,55 @@ func TestCheckNode(t *testing.T) {
 		})
 	}
 
+}
+
+func TestCheckResponseTime(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	testCases := []struct {
+		name              string
+		timeout           time.Duration
+		expectedUnhealthy bool
+		expectedWeight    float64
+	}{
+		{
+			name:              "node unhealthy",
+			timeout:           time.Duration(500 * time.Millisecond),
+			expectedUnhealthy: true,
+			expectedWeight:    0.9,
+		},
+		{
+			name:              "node healthy",
+			timeout:           0,
+			expectedUnhealthy: false,
+			expectedWeight:    1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			url := &url.URL{}
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.timeout > 0 {
+					time.Sleep(tc.timeout)
+				}
+			})
+
+			testServer := httptest.NewServer(handler)
+			defer testServer.Close()
+
+			url.Host = strings.TrimPrefix(testServer.URL, "http://")
+
+			node := &Node{
+				URL:    url,
+				weight: 1,
+			}
+			fmt.Println(node.weight)
+			node.CheckResponseTime()
+			fmt.Println(node.weight)
+
+			g.Expect(tc.expectedUnhealthy).To(gomega.Equal(node.unhealthy))
+			g.Expect(tc.expectedWeight).To(gomega.Equal(node.weight))
+		})
+	}
 }
