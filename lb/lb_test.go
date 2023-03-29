@@ -2,6 +2,7 @@ package lb
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -66,8 +67,15 @@ func TestRunHealthCheck(t *testing.T) {
 func TestSelectServerByCookie(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
-	anotherUrl := url.URL{Host: "anotherurl.com"}
-	cookieUrl := url.URL{Host: "example.com"}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "Hello, world!")
+	})
+
+	testServer := httptest.NewServer(handler)
+	defer testServer.Close()
+
+	cookieUrl := url.URL{Host: strings.TrimPrefix(testServer.URL, "http://")}
+	anotherUrl := url.URL{Host: strings.TrimPrefix(testServer.URL, "http://")}
 
 	activeNode1 := &Node{alive: true, URL: &anotherUrl}
 	activeNodeWithCookie := &Node{alive: true, URL: &cookieUrl}
@@ -89,9 +97,9 @@ func TestSelectServerByCookie(t *testing.T) {
 		},
 		{
 			name:         "cookie not present in the request - use the next available healthy node",
-			nodes:        []*Node{activeNode1, activeNode3},
+			nodes:        []*Node{activeNode1, activeNodeWithCookie, activeNode3},
 			cookie:       &http.Cookie{Value: "random.com"},
-			expectedNode: activeNode3,
+			expectedNode: activeNode1,
 			expectedErr:  nil,
 		},
 	}
@@ -116,13 +124,21 @@ func TestSelectServerByCookie(t *testing.T) {
 func TestSelectServerByNextHealthyNode(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
-	url := url.URL{Host: "example.com"}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "Hello, world!")
+	})
 
-	activeNode1 := &Node{alive: true, URL: &url}
-	activeNode2 := &Node{alive: true, URL: &url}
+	testServer := httptest.NewServer(handler)
+	defer testServer.Close()
 
-	inaactiveNode1 := &Node{alive: false, URL: &url}
-	inaactiveNode2 := &Node{alive: false, URL: &url}
+	activeUrl := url.URL{Host: strings.TrimPrefix(testServer.URL, "http://")}
+	inactiveUrl := url.URL{Host: "example.com"}
+
+	activeNode1 := &Node{alive: true, URL: &activeUrl}
+	activeNode2 := &Node{alive: true, URL: &activeUrl}
+
+	inaactiveNode1 := &Node{alive: false, URL: &inactiveUrl}
+	inaactiveNode2 := &Node{alive: false, URL: &inactiveUrl}
 
 	testCases := []struct {
 		name           string
@@ -136,7 +152,7 @@ func TestSelectServerByNextHealthyNode(t *testing.T) {
 			nodes:          []*Node{activeNode1, activeNode2},
 			expectedNode:   activeNode1,
 			expectedErr:    nil,
-			expectedCookie: http.Cookie{Name: "session", Value: "//example.com"},
+			expectedCookie: http.Cookie{Name: "session", Value: fmt.Sprintf("%s", activeNode2.URL)},
 		},
 		{
 			name:         "all nodes are inactive",
@@ -149,7 +165,7 @@ func TestSelectServerByNextHealthyNode(t *testing.T) {
 			nodes:          []*Node{inaactiveNode1, activeNode1},
 			expectedNode:   activeNode1,
 			expectedErr:    nil,
-			expectedCookie: http.Cookie{Name: "session", Value: "//example.com"},
+			expectedCookie: http.Cookie{Name: "session", Value: fmt.Sprintf("%s", activeNode1.URL)},
 		},
 	}
 
@@ -181,11 +197,19 @@ func TestSelectServerByNextHealthyNode(t *testing.T) {
 
 func TestGetNextHealthyNode(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	activeNode1 := &Node{alive: true}
-	activeNode2 := &Node{alive: true}
 
-	inaactiveNode1 := &Node{alive: false}
-	inaactiveNode2 := &Node{alive: false}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "Hello, world!")
+	})
+
+	testServer := httptest.NewServer(handler)
+	defer testServer.Close()
+
+	activeNode1 := &Node{URL: &url.URL{Host: strings.TrimPrefix(testServer.URL, "http://")}, alive: true}
+	activeNode2 := &Node{URL: &url.URL{Host: strings.TrimPrefix(testServer.URL, "http://")}, alive: true}
+
+	inaactiveNode1 := &Node{URL: &url.URL{Host: "example.com"}, alive: false}
+	inaactiveNode2 := &Node{URL: &url.URL{Host: "example.com"}, alive: false}
 
 	testCases := []struct {
 		name         string

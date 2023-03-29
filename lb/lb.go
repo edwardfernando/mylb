@@ -49,7 +49,8 @@ func (lb *LB) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	node, err := lb.selectServer(w, r)
 	if err != nil {
-		log.Default().Fatal("failed to serve HTTP: `", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 	node.ReverseProxy.ServeHTTP(w, r)
 }
@@ -86,10 +87,9 @@ func (lb *LB) selectServer(w http.ResponseWriter, r *http.Request) (*Node, error
 
 // selectServerByCookie selects a node by session cookie
 func (lb *LB) selectServerByCookie(w http.ResponseWriter, cookie *http.Cookie) (*Node, error) {
-	fmt.Println(cookie.Value)
 	for _, node := range lb.Nodes {
 		if node.URL.String() == cookie.Value {
-			if !node.IsAlive() {
+			if !node.CheckNode() {
 				return lb.selectServerByNextHealthyNode(w)
 			}
 
@@ -117,14 +117,13 @@ func (lb *LB) selectServerByNextHealthyNode(w http.ResponseWriter) (*Node, error
 // status of the choose node
 func (lb *LB) getNextHealthyNode() (*Node, error) {
 	for i := 0; i < len(lb.Nodes); i++ {
-		lb.current = lb.NextIndex()
 		node := lb.Nodes[lb.current]
-		if node.IsAlive() {
+		lb.current = lb.NextIndex()
+		if node.CheckNode() {
 			return node, nil
 		} else {
 			node.SetAlive(false)
 		}
-
 	}
 
 	return nil, errors.New("no available node")
@@ -167,5 +166,6 @@ func newServerNodes(originServerList []string) (*LB, error) {
 
 	return &LB{
 		Nodes: nodes,
+		mux:   sync.Mutex{},
 	}, nil
 }
