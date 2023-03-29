@@ -3,10 +3,9 @@
 This project is a personal project aimed at designing and implementing a basic load balancer using the Go programming language. The primary objective of this undertaking is to gain a deeper understanding of how load balancers work, and to acquire hands-on experience in building one from the ground up.
 
 Currently there are three key features:
-1. Round robin load balancing strategy
+1. Round robin load balancing strategy and also offers support for weighted distribution of traffic among the healthy nodes.
 2. Active & Passive health check of all nodes
 3. Session affinity
-
 
 ## Prerequisites
 1. go 1.19
@@ -62,8 +61,8 @@ To experiment with the features, you can use the built-in mocking server and loa
 ## Health Check
 By default, the load balancer conducts a health check every 5 seconds to verify the status of all nodes. If a node is found to be down, it will be marked as such and the load balancer will discontinue routing traffic to it. Additionally, an active health check feature is in place whereby if a request arrives and the selected node is down, the traffic will be automatically redirected to another available node.
 
-## Load Balancing
-The load balancer uses a round-robin load balancing strategy to distribute traffic among the available nodes.
+## Weighted Load Balancing
+The load balancer uses a round-robin load balancing strategy to distribute traffic among the available nodes. MyLB also supports weighted round robin load balancing for nodes that are slowing down with response time exceeding 200ms. In this strategy, nodes with slower response times are assigned a lower weight, while nodes with faster response times are assigned a higher weight. This ensures that the load balancer distributes traffic more evenly among the available nodes, while also minimizing the impact of slower nodes on overall system performance.
 
 ## Session Affinity
 The load balancer supports session affinity by setting a session cookie with the value of the selected node URL. The cookie is stored in the HTTP response writer, and the same cookie is used for subsequent requests from the same client. If the selected node is down, the load balancer will choose the next available healthy node.
