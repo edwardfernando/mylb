@@ -86,7 +86,6 @@ func (lb *LB) selectServer(w http.ResponseWriter, r *http.Request) (*Node, error
 
 // selectServerByCookie selects a node by session cookie
 func (lb *LB) selectServerByCookie(w http.ResponseWriter, cookie *http.Cookie) (*Node, error) {
-	fmt.Println(cookie.Value)
 	for _, node := range lb.Nodes {
 		if node.URL.String() == cookie.Value {
 			if !node.IsAlive() {
@@ -117,13 +116,15 @@ func (lb *LB) selectServerByNextHealthyNode(w http.ResponseWriter) (*Node, error
 // status of the choose node
 func (lb *LB) getNextHealthyNode() (*Node, error) {
 	for i := 0; i < len(lb.Nodes); i++ {
-		lb.current = lb.NextIndex()
 		node := lb.Nodes[lb.current]
+		lb.current = lb.NextIndex()
 		if node.IsAlive() {
 			return node, nil
 		} else {
 			node.SetAlive(false)
 		}
+		log.Default().Println("Getting node ", node.URL)
+		// increment the index
 
 	}
 
@@ -167,5 +168,6 @@ func newServerNodes(originServerList []string) (*LB, error) {
 
 	return &LB{
 		Nodes: nodes,
+		mux:   sync.Mutex{},
 	}, nil
 }
