@@ -1,6 +1,6 @@
 INTEGRATION_TEST_PATH?=./it
 
-test:
+test.unit:
 	go test -v ./lb
 
 test.integration:
