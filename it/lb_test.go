@@ -18,19 +18,21 @@ import (
 
 type lbTestSuite struct {
 	suite.Suite
-	lb     lb.LB
-	nodes  []*lb.Node
-	server []*httptest.Server
 }
 
 func TestLbTestSuite(t *testing.T) {
 	suite.Run(t, &lbTestSuite{})
 }
 
-func createHTTPServer(identifier string) *httptest.Server {
+func createHTTPServer(identifier string, mockResponseTimeInMs time.Duration) *httptest.Server {
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, identifier)
+
+		if mockResponseTimeInMs > 0 {
+			time.Sleep(mockResponseTimeInMs)
+		}
 	}))
 	return server
 }
@@ -38,9 +40,9 @@ func createHTTPServer(identifier string) *httptest.Server {
 func (l *lbTestSuite) TestLoadBalancer_AllNodesRunning() {
 	servers := []string{}
 
-	server1 := createHTTPServer("1")
-	server2 := createHTTPServer("2")
-	server3 := createHTTPServer("3")
+	server1 := createHTTPServer("1", 0)
+	server2 := createHTTPServer("2", 0)
+	server3 := createHTTPServer("3", 0)
 
 	defer server1.Close()
 	defer server2.Close()
@@ -97,9 +99,9 @@ func (l *lbTestSuite) TestLoadBalancer_AllNodesRunning() {
 func (l *lbTestSuite) TestLoadBalancer_OneNodeIsDown() {
 	servers := []string{}
 
-	server1 := createHTTPServer("1")
-	server2 := createHTTPServer("2")
-	server3 := createHTTPServer("3")
+	server1 := createHTTPServer("1", 0)
+	server2 := createHTTPServer("2", 0)
+	server3 := createHTTPServer("3", 0)
 
 	defer server1.Close()
 	defer server2.Close()
@@ -156,9 +158,9 @@ func (l *lbTestSuite) TestLoadBalancer_OneNodeIsDown() {
 func (l *lbTestSuite) TestLoadBalancer_CookiePresents() {
 	servers := []string{}
 
-	server1 := createHTTPServer("1")
-	server2 := createHTTPServer("2")
-	server3 := createHTTPServer("3")
+	server1 := createHTTPServer("1", 0)
+	server2 := createHTTPServer("2", 0)
+	server3 := createHTTPServer("3", 0)
 
 	defer server1.Close()
 	defer server2.Close()
@@ -265,4 +267,53 @@ func (l *lbTestSuite) TestLoadBalancer_NoNodesRunning() {
 	l.Assert().Equal("Internal Server Error\n", string(body))
 
 	pool.Shutdown(context.TODO())
+}
+
+func (l *lbTestSuite) TestLoadBalancer_OneNodeSlowingDown() {
+	servers := []string{}
+
+	server1 := createHTTPServer("1", time.Duration(500*time.Millisecond)) // active but slow response time 500ms
+	server2 := createHTTPServer("2", 0)
+	server3 := createHTTPServer("3", 0)
+
+	defer server1.Close()
+	defer server2.Close()
+	defer server3.Close()
+
+	node1 := lb.Node{URL: &url.URL{Host: strings.TrimPrefix(server1.URL, "http://")}}
+	node1.SetAlive(true)
+
+	node2 := lb.Node{URL: &url.URL{Host: strings.TrimPrefix(server2.URL, "http://")}}
+	node2.SetAlive(true)
+
+	node3 := lb.Node{URL: &url.URL{Host: strings.TrimPrefix(server3.URL, "http://")}}
+	node3.SetAlive(true)
+
+	servers = append(servers, server1.URL, server2.URL, server3.URL)
+
+	pool, _ := lb.NewLoadBalancer(servers, 8000)
+	go pool.ListenAndServe()
+
+	time.Sleep(10 * time.Second)
+
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:8000", nil)
+	l.NoError(err)
+
+	// this should be handled by server2
+	client := &http.Client{}
+	res, err := client.Do(req)
+	l.NoError(err)
+	l.Equal(http.StatusOK, res.StatusCode)
+
+	body, _ := ioutil.ReadAll(res.Body)
+	l.Assert().Equal("2", string(body))
+
+	// this should be handled by server3
+	client = &http.Client{}
+	res, err = client.Do(req)
+	l.NoError(err)
+	l.Equal(http.StatusOK, res.StatusCode)
+
+	body, _ = ioutil.ReadAll(res.Body)
+	l.Assert().Equal("3", string(body))
 }
