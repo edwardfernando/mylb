@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,10 +15,11 @@ import (
 
 // LB represents a load balancer with the necessary configuration
 type LB struct {
-	Nodes   []*Node
-	current int64
-	mux     sync.Mutex
-	cookie  *http.Cookie
+	Nodes       []*Node
+	current     int64
+	mux         sync.Mutex
+	cookie      *http.Cookie
+	totalWeight float64
 }
 
 // NewLoadBalancer creates a new load balancer with the given list of origin servers.
@@ -62,6 +64,7 @@ func (lb *LB) RunHealthCheck() {
 	defer ticker.Stop()
 
 	for range ticker.C {
+		lb.sortNodesByWeight()
 		for _, n := range lb.Nodes {
 			status := n.CheckNode()
 			n.SetAlive(status)
@@ -70,7 +73,20 @@ func (lb *LB) RunHealthCheck() {
 				statusString = "up"
 			}
 
-			log.Default().Printf("Node %s status: %v", n.URL.Host, statusString)
+			logString := fmt.Sprintf("Node '%s' status: %s", n.URL.Host, statusString)
+
+			if statusString == "up" {
+				n.CheckResponseTime()
+
+				unhealthyString := "healthy"
+				if n.unhealthy {
+					unhealthyString = "unhealthy"
+				}
+
+				logString = logString + fmt.Sprintf(", Healthy status: %s", unhealthyString)
+			}
+
+			log.Default().Println(logString)
 		}
 	}
 }
@@ -116,6 +132,9 @@ func (lb *LB) selectServerByNextHealthyNode(w http.ResponseWriter) (*Node, error
 // getNextHealthyNode returns the next available healthy node and actively update the
 // status of the choose node
 func (lb *LB) getNextHealthyNode() (*Node, error) {
+	// sort the nodes by its weight in descending order
+	lb.sortNodesByWeight()
+
 	for i := 0; i < len(lb.Nodes); i++ {
 		node := lb.Nodes[lb.current]
 		lb.current = lb.NextIndex()
@@ -147,7 +166,7 @@ func (lb *LB) setCookie(w http.ResponseWriter, node *Node) {
 // The function returns an error if any URL in originServerList is invalid.
 func newServerNodes(originServerList []string) (*LB, error) {
 	nodes := []*Node{}
-
+	var totalWeight float64
 	for _, urlString := range originServerList {
 		url, err := url.Parse(urlString)
 		if err != nil {
@@ -159,13 +178,22 @@ func newServerNodes(originServerList []string) (*LB, error) {
 		n := &Node{
 			URL:          url,
 			ReverseProxy: proxy,
+			weight:       1, //set default weight to 1
 		}
 
 		nodes = append(nodes, n)
+		totalWeight += n.weight
 	}
 
 	return &LB{
-		Nodes: nodes,
-		mux:   sync.Mutex{},
+		Nodes:       nodes,
+		mux:         sync.Mutex{},
+		totalWeight: totalWeight,
 	}, nil
+}
+
+func (lb *LB) sortNodesByWeight() {
+	sort.Slice(lb.Nodes, func(i, j int) bool {
+		return lb.Nodes[i].weight > lb.Nodes[j].weight
+	})
 }

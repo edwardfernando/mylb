@@ -2,6 +2,7 @@ package lb
 
 import (
 	"net"
+	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"sync"
@@ -12,6 +13,8 @@ import (
 type Node struct {
 	URL          *url.URL
 	alive        bool
+	unhealthy    bool
+	weight       float64
 	mux          sync.RWMutex
 	ReverseProxy *httputil.ReverseProxy
 }
@@ -43,4 +46,23 @@ func (n *Node) CheckNode() bool {
 	}
 	defer conn.Close()
 	return true
+}
+
+func (n *Node) CheckResponseTime() {
+	client := &http.Client{
+		Timeout: 200 * time.Millisecond,
+	}
+
+	_, err := client.Get("http://" + n.URL.Host)
+	if err != nil {
+		// timeout after 200ms
+		// lower down the weight by 10%
+		n.weight -= n.weight * 0.1
+		n.unhealthy = true
+		return
+	}
+
+	// set back to 1 (highest) if the response time < 200ms
+	n.weight = 1
+	n.unhealthy = false
 }
